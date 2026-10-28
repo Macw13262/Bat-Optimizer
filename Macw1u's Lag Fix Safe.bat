@@ -8,10 +8,15 @@ color 0B
 :: No disabling Defender, Windows Update, or essential services.
 :: Some actions are maintenance/diagnostics and do not directly raise FPS.
 
-net session >nul 2>&1
-if %errorlevel% neq 0 (
+:: Check elevation using Windows security APIs (more reliable than "net session")
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent()); if ($p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 0 } else { exit 1 }" >nul 2>&1
+if errorlevel 1 (
     echo Requesting Administrator permission...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs } catch { exit 1 }"
+    if errorlevel 1 (
+        echo Could not request Administrator permission. Right-click this file and choose Run as administrator.
+        pause
+    )
     exit /b
 )
 
@@ -89,119 +94,3 @@ echo [12/35] Disabling minimize/maximize window animation...
 reg add "HKCU\Control Panel\Desktop\WindowMetrics" /v MinAnimate /t REG_SZ /d 0 /f >nul
 
 echo.
-echo [13/35] Disabling taskbar animations...
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v TaskbarAnimations /t REG_DWORD /d 0 /f >nul
-
-echo.
-echo [14/35] Making menus open faster (cosmetic; 100 ms)...
-reg add "HKCU\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 100 /f >nul
-
-echo.
-echo [15/35] Disabling full-window drag previews (cosmetic)...
-reg add "HKCU\Control Panel\Desktop" /v DragFullWindows /t REG_SZ /d 0 /f >nul
-
-echo.
-echo [16/35] Turning off Explorer list-view alpha selection...
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v ListviewAlphaSelect /t REG_DWORD /d 0 /f >nul
-
-echo.
-echo [17/35] Turning off Explorer list-view shadows...
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v ListviewShadow /t REG_DWORD /d 0 /f >nul
-
-echo.
-echo [18/35] Selecting the built-in High Performance plan if available...
-powercfg /setactive SCHEME_MIN >nul 2>&1
-if %errorlevel% equ 0 (echo High Performance selected.) else (echo Not available; existing plan left unchanged.)
-powercfg /getactivescheme
-
-echo.
-echo [19/35] Cleaning files in your user TEMP folder...
-del /f /s /q "%TEMP%\*" >nul 2>&1
-for /d %%D in ("%TEMP%\*") do rd /s /q "%%D" >nul 2>&1
-echo Files currently in use are skipped.
-
-echo.
-echo [20/35] Cleaning files in the Windows TEMP folder...
-del /f /s /q "%WINDIR%\Temp\*" >nul 2>&1
-for /d %%D in ("%WINDIR%\Temp\*") do rd /s /q "%%D" >nul 2>&1
-echo Files currently in use are skipped.
-
-echo.
-echo [21/35] Flushing the DNS resolver cache...
-ipconfig /flushdns
-
-echo.
-echo [22/35] Asking Windows to optimize the system drive...
-echo Windows chooses the appropriate operation for SSD/HDD.
-defrag %SystemDrive% /O /U
-
-echo.
-echo [23/35] Running an online disk scan (no forced repair/reboot)...
-chkdsk %SystemDrive% /scan
-
-echo.
-echo [24/35] Checking and repairing Windows component store...
-DISM /Online /Cleanup-Image /RestoreHealth
-
-echo.
-echo [25/35] Checking Windows protected system files...
-sfc /scannow
-
-echo.
-echo [26/35] Generating a power efficiency diagnostic report...
-powercfg /energy /duration 30 /output "%BACKUP%\EnergyReport.html"
-
-echo.
-echo [27/35] Saving active power plan details...
-powercfg /getactivescheme > "%BACKUP%\ActivePowerPlan.txt" 2>&1
-
-echo.
-echo [28/35] Saving Windows and hardware diagnostics...
-systeminfo > "%BACKUP%\SystemInfo.txt" 2>&1
-
-echo.
-echo [29/35] Saving network diagnostics...
-ipconfig /all > "%BACKUP%\NetworkInfo.txt" 2>&1
-
-echo.
-echo [30/35] Saving free-space information...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | Select-Object DeviceID,@{N='FreeGB';E={[math]::Round($_.FreeSpace/1GB,2)}},@{N='SizeGB';E={[math]::Round($_.Size/1GB,2)}} | Format-Table -AutoSize | Out-File -Encoding utf8 '%BACKUP%\DiskSpace.txt'"
-
-echo.
-echo [31/35] Opening Windows Game Mode settings...
-start "" ms-settings:gaming-gamemode
-
-echo.
-echo [32/35] Opening Graphics settings (set your game to High performance if offered)...
-start "" ms-settings:display-advancedgraphics
-
-echo.
-echo [33/35] Opening display settings to check refresh rate...
-start "" ms-settings:display-advanced
-
-echo.
-echo [34/35] Opening Storage settings for Windows cleanup options...
-start "" ms-settings:storage
-
-echo.
-echo [35/35] Opening Startup Apps settings so you can disable unwanted apps yourself...
-start "" ms-settings:startupapps
-
-echo.
-echo ============================================================
-echo                   FINISHED
-echo ============================================================
-echo Backup and reports: %BACKUP%
-echo Restart Windows to apply all changes consistently.
-echo.
-echo SAFETY NOTES:
-echo - This script does not disable Defender, Windows Update, or core services.
-echo - Do not disable random services or use registry "ping/FPS tweaks".
-echo - Initial game launch after maintenance may briefly stutter while caches rebuild.
-echo - If you dislike the visual changes, restore the saved registry sections
-echo   or use System Restore if a restore point was successfully created.
-echo - High Performance may increase laptop heat and battery use.
-echo - For best results, update GPU drivers from the official NVIDIA/AMD/Intel site.
-echo.
-pause
-endlocal
